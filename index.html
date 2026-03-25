@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meccmax's Turret Editor for AutomatedTurrets</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <style>
   :root {
     --bg: #0a0c0a;
@@ -603,7 +604,70 @@
     border-color: #7a5c00;
     color: var(--amber);
   }
-  .btn-amber:hover { background: rgba(255,193,7,0.2); }
+  .btn-amber:hover { background: rgba(255,193,7,0.2); box-shadow: 0 0 10px rgba(255,193,7,0.2); }
+
+  /* OCR MODAL */
+  .ocr-drop-zone {
+    border: 2px dashed var(--border-bright);
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #060806;
+    margin-bottom: 16px;
+  }
+  .ocr-drop-zone:hover, .ocr-drop-zone.drag-over {
+    border-color: var(--amber);
+    background: rgba(255,193,7,0.04);
+  }
+  .ocr-queue { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+  .ocr-queue::-webkit-scrollbar { width: 4px; }
+  .ocr-queue::-webkit-scrollbar-thumb { background: var(--green-dim); }
+  .ocr-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .ocr-item.ocr-error { border-color: #7a1f1a; }
+  .ocr-item.ocr-ok { border-color: var(--green-dim); }
+  .ocr-thumb {
+    width: 90px; height: 90px; object-fit: cover;
+    display: block; border-right: 1px solid var(--border);
+    background: #060806;
+  }
+  .ocr-details { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .ocr-filename { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ocr-status { font-size: 11px; display: flex; align-items: center; gap: 6px; }
+  .ocr-status.scanning { color: var(--amber); }
+  .ocr-status.done { color: var(--green); }
+  .ocr-status.err { color: var(--red); }
+  .ocr-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px; }
+  .ocr-field { font-size: 10px; color: var(--text-dim); }
+  .ocr-field span { color: var(--text-bright); margin-left: 3px; }
+  .ocr-field-wide { grid-column: 1/-1; }
+  .ocr-assign { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+  .ocr-assign select, .ocr-assign input { font-size: 11px; padding: 4px 6px; flex: 1; min-width: 80px; }
+  .ocr-remove {
+    position: absolute; top: 4px; right: 4px;
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 13px; line-height: 1;
+    transition: color 0.15s;
+  }
+  .ocr-remove:hover { color: var(--red); }
+  .ocr-progress {
+    height: 2px; background: var(--amber);
+    position: absolute; bottom: 0; left: 0;
+    transition: width 0.3s;
+    box-shadow: 0 0 6px var(--amber);
+  }
+  .ocr-empty {
+    text-align: center; padding: 24px;
+    font-size: 12px; color: var(--text-dim);
+  }
   .btn-full { width: 100%; justify-content: center; }
 
   /* TURRET INDEX HEADER */
@@ -799,6 +863,9 @@
     <button class="btn btn-ghost" onclick="showPasteModal()" title="Paste JSON">⎘ PASTE</button>
     <button class="btn btn-ghost" onclick="openRightPanel('history')" title="Change History">⏱ HISTORY</button>
     <button class="btn btn-ghost" onclick="openRightPanel('json')" title="Raw JSON + Validator">{ } JSON</button>
+    <button class="btn btn-amber" onclick="triggerOcrInput()" title="Import from Screenshot">📷 OCR IMPORT</button>
+    <button class="btn btn-amber" onclick="triggerDocxInput()" title="Import from Word Doc">📄 DOCX IMPORT</button>
+    <button class="btn btn-amber" onclick="triggerMapInput()" title="Import from .map file">🗺 MAP IMPORT</button>
     <button class="btn btn-green" onclick="showExport()" title="Export JSON">⬇ EXPORT</button>
   </div>
 </div>
@@ -911,6 +978,167 @@
       <div class="history-list" id="history-list"></div>
     </div>
 
+  </div>
+</div>
+
+<input type="file" id="ocr-input" accept="image/*" multiple style="position:fixed;left:-9999px;opacity:0;width:1px;height:1px;" onchange="handleOcrFiles(event)">
+<input type="file" id="docx-input" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="position:fixed;left:-9999px;opacity:0;width:1px;height:1px;" onchange="handleDocxFile(event)">
+<input type="file" id="map-input" accept=".map,.txt,text/plain" multiple style="position:fixed;left:-9999px;opacity:0;width:1px;height:1px;" onchange="handleMapFiles(event)">
+
+<!-- OCR IMPORT MODAL -->
+<div class="modal-overlay" id="ocr-modal">
+  <div class="modal" style="max-width:700px;width:95%;">
+    <div class="modal-header">
+      📷 OCR IMPORT — SCREENSHOT TO TURRET
+      <button class="modal-close" onclick="closeModal('ocr-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;">
+
+      <!-- Drop zone -->
+      <div class="ocr-drop-zone" id="ocr-drop-zone" onclick="triggerOcrInput()">
+        <div style="font-size:28px;margin-bottom:8px;">📷</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-bottom:4px;">DROP SCREENSHOTS HERE or click to browse</div>
+        <div style="font-size:10px;color:var(--text-dim);opacity:0.6;">Supports PNG, JPG — batch import supported</div>
+      </div>
+
+      <!-- Gemini Vision API key -->
+      <div id="ocr-engine-status" style="background:rgba(76,175,80,0.06);border:1px solid var(--border);padding:7px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+        <span id="ocr-engine-dot" style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0;"></span>
+        <span id="ocr-engine-msg" style="font-size:10px;color:var(--text-dim);flex:1;">Google Gemini Vision (free tier)</span>
+        <input type="password" id="ocr-api-key" placeholder="Gemini API key (AIza...)"
+          style="font-size:11px;padding:4px 8px;flex:2;min-width:0;"
+          oninput="saveApiKey(this.value)" autocomplete="off">
+        <a href="https://aistudio.google.com/app/apikey" target="_blank"
+          style="font-size:10px;color:var(--green-bright);white-space:nowrap;text-decoration:none;">Get free key ↗</a>
+      </div>
+
+      <!-- Queue -->
+      <div id="ocr-queue" class="ocr-queue">
+        <div class="ocr-empty" id="ocr-empty-msg">No screenshots added yet.</div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div style="font-size:11px;color:var(--text-dim);align-self:center;" id="ocr-summary"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="clearOcrQueue()">✕ CLEAR ALL</button>
+        <button class="btn btn-amber" onclick="importAllOcr()" id="ocr-import-btn">⬇ IMPORT ALL READY</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DOCX IMPORT MODAL -->
+<div class="modal-overlay" id="docx-modal">
+  <div class="modal" style="max-width:700px;width:95%;">
+    <div class="modal-header">
+      📄 DOCX IMPORT — EXTRACT IMAGES FROM WORD DOC
+      <button class="modal-close" onclick="closeModal('docx-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;">
+
+      <!-- Drop zone -->
+      <div class="ocr-drop-zone" id="docx-drop-zone" onclick="triggerDocxInput()">
+        <div style="font-size:28px;margin-bottom:8px;">📄</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-bottom:4px;">DROP A .DOC OR .DOCX FILE HERE or click to browse</div>
+        <div style="font-size:10px;color:var(--text-dim);opacity:0.6;">All embedded images will be extracted and scanned via OCR</div>
+      </div>
+
+      <!-- Progress / status -->
+      <div id="docx-status" style="font-size:11px;color:var(--text-dim);margin-bottom:12px;min-height:18px;display:flex;align-items:center;gap:8px;">
+        <span id="docx-status-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-dim);display:inline-block;flex-shrink:0;"></span>
+        <span id="docx-status-msg">No document loaded.</span>
+      </div>
+
+      <!-- Extracted image queue — reuses the same OCR queue rendering -->
+      <div id="docx-queue" class="ocr-queue">
+        <div class="ocr-empty" id="docx-empty-msg">No images extracted yet.</div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div style="font-size:11px;color:var(--text-dim);align-self:center;" id="docx-summary"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="clearDocxQueue()">✕ CLEAR</button>
+        <button class="btn btn-amber" onclick="importAllDocx()">⬇ IMPORT ALL READY</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MAP IMPORT MODAL -->
+<div class="modal-overlay" id="map-modal">
+  <div class="modal" style="max-width:720px;width:95%;">
+    <div class="modal-header">
+      🗺 MAP IMPORT — IMPORT FROM .MAP FILE
+      <button class="modal-close" onclick="closeModal('map-modal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;">
+
+      <div class="ocr-drop-zone" id="map-drop-zone" onclick="triggerMapInput()">
+        <div style="font-size:28px;margin-bottom:8px;">🗺</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-bottom:4px;">DROP .MAP FILES HERE or click to browse</div>
+        <div style="font-size:10px;color:var(--text-dim);opacity:0.6;">Format: ClassName|X Y Z|RotX RotY RotZ — one turret per line</div>
+      </div>
+
+      <!-- Global defaults strip -->
+      <div style="background:var(--card);border:1px solid var(--border);padding:12px 14px;margin-bottom:12px;">
+        <div style="font-size:10px;color:var(--text-dim);letter-spacing:2px;margin-bottom:10px;">DEFAULT SETTINGS APPLIED TO ALL IMPORTED TURRETS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+          <div class="field">
+            <label>Ammo Type</label>
+            <select id="map-ammo">
+              ${AMMO_TYPES ? '' : ''}
+            </select>
+          </div>
+          <div class="field">
+            <label>Guard Radius (m)</label>
+            <input type="number" id="map-radius" value="50" min="1" max="500">
+          </div>
+          <div class="field">
+            <label>RPM</label>
+            <input type="number" id="map-rpm" value="650" min="1" max="6000">
+          </div>
+          <div class="field">
+            <label>Hit Chance (%)</label>
+            <input type="number" id="map-hitchance" value="80" min="0" max="100">
+          </div>
+          <div class="field">
+            <label>Assign Group</label>
+            <select id="map-group"><option value="">— No Group —</option></select>
+          </div>
+          <div class="field">
+            <label>Respawn (sec)</label>
+            <input type="number" id="map-respawn" value="3600" min="0">
+          </div>
+          <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;">
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+              <label style="margin:0;">Destructible</label>
+              <input type="checkbox" id="map-destructible" checked style="width:auto;padding:0;border:none;">
+            </div>
+          </div>
+          <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;">
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+              <label style="margin:0;">Apply to existing</label>
+              <input type="checkbox" id="map-overwrite" style="width:auto;padding:0;border:none;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview table -->
+      <div id="map-preview-wrap">
+        <div style="font-size:10px;color:var(--text-dim);letter-spacing:2px;margin-bottom:8px;">PARSED TURRETS</div>
+        <div id="map-preview-table" style="overflow-x:auto;">
+          <div class="ocr-empty">No .map file loaded yet.</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div style="font-size:11px;color:var(--text-dim);align-self:center;" id="map-summary"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="clearMapData()">✕ CLEAR</button>
+        <button class="btn btn-amber" onclick="importMapTurrets()">⬇ IMPORT ALL</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2102,6 +2330,772 @@ function formatTime(s) {
 document.addEventListener('click', e => {
   if (e.target.classList.contains('modal-overlay')) {
     e.target.classList.remove('show');
+  }
+});
+
+// ===================== OCR IMPORT =====================
+const API_KEY_STORAGE = 'atce_ocr_api_key';
+function getApiKey()     { return localStorage.getItem(API_KEY_STORAGE) || ''; }
+function saveApiKey(val) { val = val.trim(); if (val) localStorage.setItem(API_KEY_STORAGE, val); else localStorage.removeItem(API_KEY_STORAGE); }
+
+let ocrQueue = []; // [ { id, file, dataUrl, status, result, label, group, applyTo } ]
+let ocrIdCounter = 0;
+
+function triggerOcrInput() {
+  const inp = document.getElementById('ocr-api-key');
+  if (inp && !inp.value) inp.value = getApiKey();
+  document.getElementById('ocr-input').value = '';
+  document.getElementById('ocr-input').click();
+}
+
+function showOcrModal() {
+  const inp = document.getElementById('ocr-api-key');
+  if (inp && !inp.value) inp.value = getApiKey();
+  document.getElementById('ocr-modal').classList.add('show');
+  renderOcrQueue();
+}
+
+async function callOcrApi(dataUrl) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('No API key set — enter your Gemini API key in the OCR Import panel');
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid image data');
+
+  const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: match[1], data: match[2] } },
+          { text: 'This is a DayZ turret placement screenshot. Extract ONLY these values and respond in exactly this format with nothing else:\nNAME: <class name>\nPX: <x position number>\nPY: <y position number>\nPZ: <z position number>\nOX: <x orientation/rotation number>\nOY: <y orientation/rotation number>\nOZ: <z orientation/rotation number>\n\nIf a value is not visible respond with 0 for that field.' }
+        ]
+      }],
+      generationConfig: { maxOutputTokens: 256, temperature: 0 }
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const msg = err?.error?.message || JSON.stringify(err) || `HTTP ${resp.status}`;
+    throw new Error(`Gemini API error ${resp.status}: ${msg}`);
+  }
+  const json = await resp.json();
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text.trim()) throw new Error('No response from Gemini');
+  return text;
+}
+
+// Parse the structured response from Claude Vision
+function parseVisionResponse(text) {
+  const get = (key) => {
+    const m = text.match(new RegExp(`${key}:\\s*([^\\n]+)`, 'i'));
+    return m ? m[1].trim() : null;
+  };
+  const name = get('NAME') || '';
+  const px = parseFloat(get('PX') || '0');
+  const py = parseFloat(get('PY') || '0');
+  const pz = parseFloat(get('PZ') || '0');
+  const ox = parseFloat(get('OX') || '0');
+  const oy = parseFloat(get('OY') || '0');
+  const oz = parseFloat(get('OZ') || '0');
+  if ([px,py,pz,ox,oy,oz].some(isNaN)) return null;
+  return { name, px, py, pz, ox, oy, oz };
+}
+
+function setOcrEngineStatus(state, msg) {
+  const dot = document.getElementById('ocr-engine-dot');
+  const msgEl = document.getElementById('ocr-engine-msg');
+  if (!dot || !msgEl) return;
+  const colors = { loading: 'var(--amber)', ready: 'var(--green)', error: 'var(--red)' };
+  dot.style.background = colors[state] || 'var(--green)';
+  msgEl.textContent = msg;
+}
+
+function handleOcrFiles(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  const inp = document.getElementById('ocr-api-key');
+  if (inp && !inp.value) inp.value = getApiKey();
+  document.getElementById('ocr-modal').classList.add('show');
+  const emptyMsg = document.getElementById('ocr-empty-msg');
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  files.forEach(f => queueOcrFile(f));
+}
+
+function queueOcrFile(file) {
+  const id = ++ocrIdCounter;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const item = {
+      id, file, dataUrl: e.target.result,
+      status: 'pending',
+      result: null,
+      label: '', groupId: '', applyTo: 'new', progress: 0
+    };
+    ocrQueue.push(item);
+    renderOcrQueue();
+    runOcr(id);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runOcr(id) {
+  const item = ocrQueue.find(i => i.id === id);
+  if (!item) return;
+  item.status = 'scanning';
+  renderOcrItem(id);
+  try {
+    setOcrEngineStatus('loading', 'Reading image via Claude Vision...');
+    const text = await callOcrApi(item.dataUrl);
+    setOcrEngineStatus('ready', 'Claude Vision API ready');
+    const parsed = parseVisionResponse(text);
+    if (parsed) {
+      item.result = parsed;
+      item.status = 'done';
+      if (!item.label && parsed.name) item.label = parsed.name;
+    } else {
+      item.status = 'error';
+      item.errorMsg = 'Could not parse position/orientation from image.';
+    }
+  } catch(e) {
+    item.status = 'error';
+    item.errorMsg = e.message || 'Vision API failed';
+    setOcrEngineStatus('error', 'Error: ' + (e.message || 'unknown'));
+  }
+  renderOcrItem(id);
+  updateOcrSummary();
+}
+
+
+function renderOcrQueue() {
+  const el = document.getElementById('ocr-queue');
+  if (!el) return;
+  if (!ocrQueue.length) {
+    el.innerHTML = '<div class="ocr-empty" id="ocr-empty-msg">No screenshots added yet.</div>';
+    updateOcrSummary();
+    return;
+  }
+  // Re-render items that don't already have a DOM element
+  ocrQueue.forEach(item => {
+    if (!document.getElementById(`ocr-item-${item.id}`)) {
+      const div = document.createElement('div');
+      div.id = `ocr-item-${item.id}`;
+      el.appendChild(div);
+    }
+    renderOcrItem(item.id);
+  });
+  updateOcrSummary();
+}
+
+function renderOcrItem(id) {
+  const item = ocrQueue.find(i => i.id === id);
+  const el = document.getElementById(`ocr-item-${id}`);
+  if (!item || !el) return;
+
+  const r = item.result;
+  const groups = getGroups();
+  const groupOpts = `<option value="">— No Group —</option>` +
+    groups.map(g => `<option value="${g.id}" ${item.groupId===g.id?'selected':''}>${g.name}</option>`).join('');
+
+  const turretOpts = `<option value="new" ${item.applyTo==='new'?'selected':''}>⊕ Create new turret</option>` +
+    (config ? config.Turrets.map((t,i) =>
+      `<option value="${i}" ${item.applyTo==i?'selected':''}>#${i+1} ${getLabel(t)||t.m_sTurretClassName}</option>`
+    ).join('') : '');
+
+  let statusHtml = '';
+  if (item.status === 'scanning') {
+    statusHtml = `<div class="ocr-status scanning">⟳ Scanning...</div>`;
+  } else if (item.status === 'error') {
+    statusHtml = `<div class="ocr-status err">✕ ${item.errorMsg || 'Parse failed'}</div>`;
+  } else if (item.status === 'done' && r) {
+    statusHtml = `
+      <div class="ocr-status done">✓ Parsed successfully</div>
+      <div class="ocr-fields">
+        <div class="ocr-field ocr-field-wide">Name:<span>${r.name || '—'}</span></div>
+        <div class="ocr-field">POS X:<span>${r.px}</span></div>
+        <div class="ocr-field">POS Y:<span>${r.py}</span></div>
+        <div class="ocr-field">POS Z:<span>${r.pz}</span></div>
+        <div class="ocr-field">ROT X:<span>${r.ox}</span></div>
+        <div class="ocr-field">ROT Y:<span>${r.oy}</span></div>
+        <div class="ocr-field">ROT Z:<span>${r.oz}</span></div>
+      </div>
+      <div class="ocr-assign">
+        <input type="text" placeholder="Label (optional)" value="${item.label||''}"
+          oninput="ocrSetLabel(${id},this.value)" style="flex:2;">
+        <select onchange="ocrSetGroup(${id},this.value)">${groupOpts}</select>
+        <select onchange="ocrSetApplyTo(${id},this.value)">${turretOpts}</select>
+      </div>`;
+  } else {
+    statusHtml = `<div class="ocr-status" style="color:var(--text-dim);">⏳ Waiting...</div>`;
+  }
+
+  el.className = `ocr-item ${item.status === 'error' ? 'ocr-error' : item.status === 'done' ? 'ocr-ok' : ''}`;
+  el.innerHTML = `
+    <img class="ocr-thumb" src="${item.dataUrl}" alt="${item.file.name}">
+    <div class="ocr-details">
+      <div class="ocr-filename">${item.file.name}</div>
+      ${statusHtml}
+    </div>
+    <button class="ocr-remove" onclick="removeOcrItem(${id})">✕</button>
+    ${item.status==='scanning' ? `<div class="ocr-progress" id="ocr-prog-${id}" style="width:60%"></div>` : ''}`;
+}
+
+function ocrSetLabel(id, val) {
+  const item = ocrQueue.find(i => i.id === id);
+  if (item) item.label = val;
+}
+function ocrSetGroup(id, gid) {
+  const item = ocrQueue.find(i => i.id === id);
+  if (item) item.groupId = gid;
+}
+function ocrSetApplyTo(id, val) {
+  const item = ocrQueue.find(i => i.id === id);
+  if (item) item.applyTo = val === 'new' ? 'new' : parseInt(val);
+}
+function removeOcrItem(id) {
+  ocrQueue = ocrQueue.filter(i => i.id !== id);
+  const el = document.getElementById(`ocr-item-${id}`);
+  if (el) el.remove();
+  if (!ocrQueue.length) renderOcrQueue();
+  updateOcrSummary();
+}
+function clearOcrQueue() {
+  ocrQueue = [];
+  renderOcrQueue();
+}
+
+function updateOcrSummary() {
+  const el = document.getElementById('ocr-summary');
+  if (!el) return;
+  const done = ocrQueue.filter(i => i.status === 'done').length;
+  const scanning = ocrQueue.filter(i => i.status === 'scanning').length;
+  const err = ocrQueue.filter(i => i.status === 'error').length;
+  const total = ocrQueue.length;
+  if (!total) { el.textContent = ''; return; }
+  el.textContent = `${done} ready · ${scanning} scanning · ${err} failed · ${total} total`;
+}
+
+function importAllOcr() {
+  if (!config) { alert('Load or create a config first.'); return; }
+  const ready = ocrQueue.filter(i => i.status === 'done' && i.result);
+  if (!ready.length) { alert('No successfully scanned images to import.'); return; }
+
+  const ALL_CLASSES = Object.values(CLASS_NAMES).flat();
+
+  ready.forEach(item => {
+    const r = item.result;
+    // Match OCR name to known class names (fuzzy: normalise underscores/spaces/case)
+    const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const matched = ALL_CLASSES.find(c => normalise(c) === normalise(r.name || '')) || r.name || 'M60_Turret_Bottom_1000HP';
+
+    const turretData = {
+      m_sTurretClassName: matched,
+      m_vTurretPosition: [r.px, r.py, r.pz],
+      m_vTurretRotation: [r.ox, r.oy, r.oz],
+      m_fTurretGuardRadius: 50,
+      m_sTurretAmmoClassName: 'Bullet_556x45',
+      m_nTurretShootingRPM: 650,
+      m_nTurretHitChance: 80,
+      m_bTurretExplosiveRounds: 0,
+      m_bTurretCanIdle: 1,
+      m_fTurretMaxIdleAngle: 45,
+      m_bTurretCanBeDestroyed: 1,
+      m_nTurretTimeToRespawn: 3600,
+      m_aTurretTargetsPlayers: ['ALL'],
+      m_aTurretTargetsZombies: ['ALL'],
+      m_aTurretTargetsAnimals: ['NONE'],
+      m_aTurretTargetsVehicles: ['NONE']
+    };
+    if (item.label) turretData._label = item.label;
+    if (item.groupId) turretData._group = item.groupId;
+
+    if (item.applyTo === 'new') {
+      config.Turrets.push(turretData);
+    } else {
+      const idx = parseInt(item.applyTo);
+      if (!isNaN(idx) && config.Turrets[idx]) {
+        // Overwrite position, rotation, class — preserve other settings
+        config.Turrets[idx].m_sTurretClassName = turretData.m_sTurretClassName;
+        config.Turrets[idx].m_vTurretPosition = turretData.m_vTurretPosition;
+        config.Turrets[idx].m_vTurretRotation = turretData.m_vTurretRotation;
+        if (item.label) config.Turrets[idx]._label = item.label;
+        if (item.groupId) config.Turrets[idx]._group = item.groupId;
+      }
+    }
+  });
+
+  markModified(`OCR import: ${ready.length} turret${ready.length!==1?'s':''} imported`);
+  refreshUI();
+  closeModal('ocr-modal');
+  clearOcrQueue();
+  setStatus(`OCR IMPORT: ${ready.length} turret${ready.length!==1?'s':''} added`);
+}
+
+// ===================== DOCX IMPORT =====================
+// Uses a separate queue that feeds into the same OCR pipeline/rendering
+let docxQueue = []; // same structure as ocrQueue items
+let docxIdCounter = 0;
+
+function triggerDocxInput() {
+  document.getElementById('docx-input').value = '';
+  document.getElementById('docx-input').click();
+}
+
+async function handleDocxFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  docxQueue = [];
+  docxIdCounter = 0;
+  renderDocxQueue();
+  document.getElementById('docx-modal').classList.add('show');
+  setDocxStatus('loading', `Reading "${file.name}"...`);
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+
+    // mammoth extracts raw image buffers from the docx
+    const images = [];
+    await mammoth.convertToHtml({ arrayBuffer }, {
+      convertImage: mammoth.images.imgElement(async imageEl => {
+        const buf = await imageEl.read('arraybuffer');
+        const ct = imageEl.contentType || 'image/png';
+        images.push({ buf, ct });
+        return {};
+      })
+    });
+
+    if (!images.length) {
+      setDocxStatus('warn', `No images found in "${file.name}".`);
+      return;
+    }
+
+    setDocxStatus('loading', `Found ${images.length} image${images.length!==1?'s':''} — queuing OCR...`);
+    document.getElementById('docx-empty-msg') && (document.getElementById('docx-empty-msg').style.display = 'none');
+
+    // Convert each image buffer to a dataURL and push into docxQueue
+    images.forEach((img, idx) => {
+      const id = ++docxIdCounter;
+      const blob = new Blob([img.buf], { type: img.ct });
+      const fakeFile = new File([blob], `${file.name} — image ${idx+1}`, { type: img.ct });
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const item = {
+          id, file: fakeFile, dataUrl: ev.target.result,
+          status: 'pending', result: null,
+          label: '', groupId: '', applyTo: 'new', progress: 0
+        };
+        docxQueue.push(item);
+        renderDocxQueue();
+        runDocxOcr(id);
+      };
+      reader.readAsDataURL(blob);
+    });
+
+    setDocxStatus('ready', `Extracted ${images.length} image${images.length!==1?'s':''} from "${file.name}" — scanning...`);
+
+  } catch(err) {
+    setDocxStatus('error', `Failed to read document: ${err.message}`);
+  }
+}
+
+function setDocxStatus(state, msg) {
+  const dot = document.getElementById('docx-status-dot');
+  const msgEl = document.getElementById('docx-status-msg');
+  if (!dot || !msgEl) return;
+  const colors = { loading: 'var(--amber)', ready: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)' };
+  dot.style.background = colors[state] || 'var(--text-dim)';
+  msgEl.textContent = msg;
+}
+
+async function runDocxOcr(id) {
+  const item = docxQueue.find(i => i.id === id);
+  if (!item) return;
+  item.status = 'scanning';
+  renderDocxItem(id);
+  try {
+    const text = await callOcrApi(item.dataUrl);
+    const parsed = parseVisionResponse(text);
+    if (parsed) {
+      item.result = parsed;
+      item.status = 'done';
+      if (!item.label && parsed.name) item.label = parsed.name;
+    } else {
+      item.status = 'error';
+      item.errorMsg = 'Could not parse position/orientation data.';
+    }
+  } catch(e) {
+    item.status = 'error';
+    item.errorMsg = e.message || 'Vision API failed';
+  }
+  renderDocxItem(id);
+  updateDocxSummary();
+}
+
+function renderDocxQueue() {
+  const el = document.getElementById('docx-queue');
+  if (!el) return;
+  if (!docxQueue.length) {
+    el.innerHTML = '<div class="ocr-empty" id="docx-empty-msg">No images extracted yet.</div>';
+    updateDocxSummary();
+    return;
+  }
+  docxQueue.forEach(item => {
+    if (!document.getElementById(`docx-item-${item.id}`)) {
+      const div = document.createElement('div');
+      div.id = `docx-item-${item.id}`;
+      el.appendChild(div);
+    }
+    renderDocxItem(item.id);
+  });
+  updateDocxSummary();
+}
+
+function renderDocxItem(id) {
+  // Reuse the same rendering logic as OCR items, just with docx- prefixed IDs
+  const item = docxQueue.find(i => i.id === id);
+  const el = document.getElementById(`docx-item-${id}`);
+  if (!item || !el) return;
+
+  const r = item.result;
+  const groups = getGroups();
+  const groupOpts = `<option value="">— No Group —</option>` +
+    groups.map(g => `<option value="${g.id}" ${item.groupId===g.id?'selected':''}>${g.name}</option>`).join('');
+  const turretOpts = `<option value="new" ${item.applyTo==='new'?'selected':''}>⊕ Create new turret</option>` +
+    (config ? config.Turrets.map((t,i) =>
+      `<option value="${i}" ${item.applyTo==i?'selected':''}>#${i+1} ${getLabel(t)||t.m_sTurretClassName}</option>`
+    ).join('') : '');
+
+  let statusHtml = '';
+  if (item.status === 'scanning') {
+    statusHtml = `<div class="ocr-status scanning">⟳ Scanning...</div>`;
+  } else if (item.status === 'error') {
+    statusHtml = `<div class="ocr-status err">✕ ${item.errorMsg || 'Parse failed'}</div>`;
+  } else if (item.status === 'done' && r) {
+    statusHtml = `
+      <div class="ocr-status done">✓ Parsed successfully</div>
+      <div class="ocr-fields">
+        <div class="ocr-field ocr-field-wide">Name:<span>${r.name || '—'}</span></div>
+        <div class="ocr-field">POS X:<span>${r.px}</span></div>
+        <div class="ocr-field">POS Y:<span>${r.py}</span></div>
+        <div class="ocr-field">POS Z:<span>${r.pz}</span></div>
+        <div class="ocr-field">ROT X:<span>${r.ox}</span></div>
+        <div class="ocr-field">ROT Y:<span>${r.oy}</span></div>
+        <div class="ocr-field">ROT Z:<span>${r.oz}</span></div>
+      </div>
+      <div class="ocr-assign">
+        <input type="text" placeholder="Label (optional)" value="${item.label||''}"
+          oninput="docxSetLabel(${id},this.value)" style="flex:2;">
+        <select onchange="docxSetGroup(${id},this.value)">${groupOpts}</select>
+        <select onchange="docxSetApplyTo(${id},this.value)">${turretOpts}</select>
+      </div>`;
+  } else {
+    statusHtml = `<div class="ocr-status" style="color:var(--text-dim);">⏳ Waiting...</div>`;
+  }
+
+  el.className = `ocr-item ${item.status==='error'?'ocr-error':item.status==='done'?'ocr-ok':''}`;
+  el.innerHTML = `
+    <img class="ocr-thumb" src="${item.dataUrl}" alt="${item.file.name}">
+    <div class="ocr-details">
+      <div class="ocr-filename">${item.file.name}</div>
+      ${statusHtml}
+    </div>
+    <button class="ocr-remove" onclick="removeDocxItem(${id})">✕</button>
+    ${item.status==='scanning'?`<div class="ocr-progress" style="width:60%"></div>`:''}`;
+}
+
+function docxSetLabel(id, val)   { const i = docxQueue.find(i=>i.id===id); if(i) i.label=val; }
+function docxSetGroup(id, gid)   { const i = docxQueue.find(i=>i.id===id); if(i) i.groupId=gid; }
+function docxSetApplyTo(id, val) { const i = docxQueue.find(i=>i.id===id); if(i) i.applyTo=val==='new'?'new':parseInt(val); }
+
+function removeDocxItem(id) {
+  docxQueue = docxQueue.filter(i => i.id !== id);
+  const el = document.getElementById(`docx-item-${id}`);
+  if (el) el.remove();
+  if (!docxQueue.length) renderDocxQueue();
+  updateDocxSummary();
+}
+
+function clearDocxQueue() {
+  docxQueue = [];
+  renderDocxQueue();
+  setDocxStatus('loading', 'No document loaded.');
+}
+
+function updateDocxSummary() {
+  const el = document.getElementById('docx-summary');
+  if (!el) return;
+  const done = docxQueue.filter(i=>i.status==='done').length;
+  const scanning = docxQueue.filter(i=>i.status==='scanning').length;
+  const err = docxQueue.filter(i=>i.status==='error').length;
+  const total = docxQueue.length;
+  el.textContent = total ? `${done} ready · ${scanning} scanning · ${err} failed · ${total} total` : '';
+}
+
+function importAllDocx() {
+  if (!config) { alert('Load or create a config first.'); return; }
+  const ready = docxQueue.filter(i => i.status === 'done' && i.result);
+  if (!ready.length) { alert('No successfully scanned images to import.'); return; }
+  const ALL_CLASSES = Object.values(CLASS_NAMES).flat();
+  const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,'');
+
+  ready.forEach(item => {
+    const r = item.result;
+    const matched = ALL_CLASSES.find(c => normalise(c) === normalise(r.name||'')) || r.name || 'M60_Turret_Bottom_1000HP';
+    const turretData = {
+      m_sTurretClassName: matched,
+      m_vTurretPosition: [r.px, r.py, r.pz],
+      m_vTurretRotation: [r.ox, r.oy, r.oz],
+      m_fTurretGuardRadius: 50, m_sTurretAmmoClassName: 'Bullet_556x45',
+      m_nTurretShootingRPM: 650, m_nTurretHitChance: 80,
+      m_bTurretExplosiveRounds: 0, m_bTurretCanIdle: 1,
+      m_fTurretMaxIdleAngle: 45, m_bTurretCanBeDestroyed: 1,
+      m_nTurretTimeToRespawn: 3600,
+      m_aTurretTargetsPlayers: ['ALL'], m_aTurretTargetsZombies: ['ALL'],
+      m_aTurretTargetsAnimals: ['NONE'], m_aTurretTargetsVehicles: ['NONE']
+    };
+    if (item.label)   turretData._label = item.label;
+    if (item.groupId) turretData._group = item.groupId;
+
+    if (item.applyTo === 'new') {
+      config.Turrets.push(turretData);
+    } else {
+      const idx = parseInt(item.applyTo);
+      if (!isNaN(idx) && config.Turrets[idx]) {
+        config.Turrets[idx].m_sTurretClassName  = turretData.m_sTurretClassName;
+        config.Turrets[idx].m_vTurretPosition   = turretData.m_vTurretPosition;
+        config.Turrets[idx].m_vTurretRotation   = turretData.m_vTurretRotation;
+        if (item.label)   config.Turrets[idx]._label = item.label;
+        if (item.groupId) config.Turrets[idx]._group = item.groupId;
+      }
+    }
+  });
+
+  markModified(`DOCX import: ${ready.length} turret${ready.length!==1?'s':''} imported`);
+  refreshUI();
+  closeModal('docx-modal');
+  clearDocxQueue();
+  setStatus(`DOCX IMPORT: ${ready.length} turret${ready.length!==1?'s':''} added`);
+}
+
+
+// ===================== MAP IMPORT =====================
+let mapParsed = [];
+
+function triggerMapInput() {
+  document.getElementById('map-input').value = '';
+  document.getElementById('map-input').click();
+}
+
+function handleMapFiles(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  mapParsed = [];
+  let pending = files.length;
+  let allLines = [];
+  files.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split(/\r?\n/).filter(l => l.trim());
+      allLines = allLines.concat(lines.map(l => ({ line: l, file: f.name })));
+      if (--pending === 0) {
+        parseMapLines(allLines);
+        document.getElementById('map-modal').classList.add('show');
+        populateMapDefaults();
+        renderMapPreview();
+      }
+    };
+    reader.readAsText(f);
+  });
+}
+
+function parseMapLines(lineObjs) {
+  mapParsed = [];
+  lineObjs.forEach(({ line, file }) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) return;
+    const parts = trimmed.split('|');
+    if (parts.length < 3) {
+      mapParsed.push({ valid: false, errorMsg: `Bad format: "${trimmed}"`, line: trimmed, file, skip: false });
+      return;
+    }
+    const className = parts[0].trim();
+    const posParts  = parts[1].trim().split(/\s+/);
+    const rotParts  = parts[2].trim().split(/\s+/);
+    if (posParts.length < 3 || rotParts.length < 3) {
+      mapParsed.push({ valid: false, errorMsg: `Not enough coordinates: "${trimmed}"`, line: trimmed, file, skip: false });
+      return;
+    }
+    const [px, py, pz] = posParts.map(Number);
+    const [ox, oy, oz] = rotParts.map(Number);
+    if ([px,py,pz,ox,oy,oz].some(isNaN)) {
+      mapParsed.push({ valid: false, errorMsg: `Non-numeric coordinates: "${trimmed}"`, line: trimmed, file, skip: false });
+      return;
+    }
+    mapParsed.push({ valid: true, className, px, py, pz, ox, oy, oz, file, skip: false });
+  });
+}
+
+function populateMapDefaults() {
+  const ammoSel = document.getElementById('map-ammo');
+  if (ammoSel && !ammoSel.options.length) {
+    AMMO_TYPES.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a; opt.textContent = a;
+      if (a === 'Bullet_556x45') opt.selected = true;
+      ammoSel.appendChild(opt);
+    });
+  }
+  const grpSel = document.getElementById('map-group');
+  if (grpSel) {
+    grpSel.innerHTML = '<option value="">— No Group —</option>';
+    getGroups().forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id; opt.textContent = g.name;
+      grpSel.appendChild(opt);
+    });
+  }
+}
+
+function renderMapPreview() {
+  const wrap    = document.getElementById('map-preview-table');
+  const summary = document.getElementById('map-summary');
+  if (!wrap) return;
+  if (!mapParsed.length) {
+    wrap.innerHTML = '<div class="ocr-empty">No .map file loaded yet.</div>';
+    if (summary) summary.textContent = '';
+    return;
+  }
+  const valid   = mapParsed.filter(r => r.valid).length;
+  const invalid = mapParsed.filter(r => !r.valid).length;
+  if (summary) summary.textContent = `${valid} valid · ${invalid} invalid · ${mapParsed.length} total`;
+  const ALL_CLASSES = Object.values(CLASS_NAMES).flat();
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:11px;">
+    <thead><tr style="background:#0c110c;border-bottom:1px solid var(--border);">
+      <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-weight:normal;">#</th>
+      <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-weight:normal;">CLASS</th>
+      <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-weight:normal;">POSITION</th>
+      <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-weight:normal;">ROTATION</th>
+      <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-weight:normal;">STATUS</th>
+      <th style="padding:6px 8px;text-align:center;color:var(--text-dim);font-weight:normal;">SKIP</th>
+    </tr></thead><tbody>`;
+
+  mapParsed.forEach((row, i) => {
+    const dim = row.skip ? 'opacity:0.35;' : '';
+    if (!row.valid) {
+      html += `<tr style="border-bottom:1px solid var(--border);${dim}background:rgba(244,67,54,0.04);">
+        <td style="padding:5px 8px;color:var(--text-dim);">${i+1}</td>
+        <td colspan="3" style="padding:5px 8px;color:var(--red);font-size:10px;">${row.errorMsg}</td>
+        <td style="padding:5px 8px;"><span class="tag red">ERROR</span></td>
+        <td style="padding:5px 8px;text-align:center;">—</td></tr>`;
+      return;
+    }
+    const known = ALL_CLASSES.includes(row.className);
+    html += `<tr style="border-bottom:1px solid var(--border);${dim}">
+      <td style="padding:5px 8px;color:var(--text-dim);">${i+1}</td>
+      <td style="padding:5px 8px;color:${known?'var(--green-bright)':'var(--amber)'};white-space:nowrap;">${row.className}</td>
+      <td style="padding:5px 8px;color:var(--text-dim);white-space:nowrap;">${row.px.toFixed(3)}, ${row.py.toFixed(3)}, ${row.pz.toFixed(3)}</td>
+      <td style="padding:5px 8px;color:var(--text-dim);white-space:nowrap;">${row.ox.toFixed(3)}, ${row.oy.toFixed(3)}, ${row.oz.toFixed(3)}</td>
+      <td style="padding:5px 8px;"><span class="tag ${known?'green':'amber'}">${known?'KNOWN':'CUSTOM'}</span></td>
+      <td style="padding:5px 8px;text-align:center;">
+        <input type="checkbox" ${row.skip?'checked':''} onchange="mapToggleSkip(${i},this.checked)"
+          style="width:auto;padding:0;border:none;cursor:pointer;accent-color:var(--green);">
+      </td></tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function mapToggleSkip(i, checked) {
+  if (mapParsed[i]) { mapParsed[i].skip = checked; renderMapPreview(); }
+}
+
+function clearMapData() {
+  mapParsed = [];
+  renderMapPreview();
+  const s = document.getElementById('map-summary');
+  if (s) s.textContent = '';
+}
+
+function importMapTurrets() {
+  if (!config) { alert('Load or create a config first.'); return; }
+  const toImport = mapParsed.filter(r => r.valid && !r.skip);
+  if (!toImport.length) { alert('No valid turrets to import.'); return; }
+
+  const ammo      = document.getElementById('map-ammo')?.value       || 'Bullet_556x45';
+  const radius    = parseFloat(document.getElementById('map-radius')?.value)   || 50;
+  const rpm       = parseInt(document.getElementById('map-rpm')?.value)        || 650;
+  const hitChance = parseInt(document.getElementById('map-hitchance')?.value)  || 80;
+  const respawn   = parseInt(document.getElementById('map-respawn')?.value)    || 3600;
+  const groupId   = document.getElementById('map-group')?.value               || '';
+  const destr     = document.getElementById('map-destructible')?.checked ? 1  : 0;
+
+  toImport.forEach(row => {
+    const t = {
+      m_sTurretClassName:      row.className,
+      m_vTurretPosition:       [row.px, row.py, row.pz],
+      m_vTurretRotation:       [row.ox, row.oy, row.oz],
+      m_fTurretGuardRadius:    radius,
+      m_sTurretAmmoClassName:  ammo,
+      m_nTurretShootingRPM:    rpm,
+      m_nTurretHitChance:      hitChance,
+      m_bTurretExplosiveRounds: 0,
+      m_bTurretCanIdle:        1,
+      m_fTurretMaxIdleAngle:   45,
+      m_bTurretCanBeDestroyed: destr,
+      m_nTurretTimeToRespawn:  respawn,
+      m_aTurretTargetsPlayers:  ['ALL'],
+      m_aTurretTargetsZombies:  ['ALL'],
+      m_aTurretTargetsAnimals:  ['NONE'],
+      m_aTurretTargetsVehicles: ['NONE']
+    };
+    if (groupId) t._group = groupId;
+    config.Turrets.push(t);
+  });
+
+  markModified(`MAP import: ${toImport.length} turret${toImport.length!==1?'s':''} imported`);
+  refreshUI();
+  closeModal('map-modal');
+  clearMapData();
+  setStatus(`MAP IMPORT: ${toImport.length} turret${toImport.length!==1?'s':''} added`);
+}
+
+// Drag-and-drop onto all modal drop zones
+document.addEventListener('DOMContentLoaded', () => {
+  // OCR drop zone
+  const ocrDz = document.getElementById('ocr-drop-zone');
+  if (ocrDz) {
+    ['dragenter','dragover'].forEach(e => ocrDz.addEventListener(e, ev => { ev.preventDefault(); ocrDz.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(e => ocrDz.addEventListener(e, ev => { ev.preventDefault(); ocrDz.classList.remove('drag-over'); }));
+    ocrDz.addEventListener('drop', ev => {
+      const files = Array.from(ev.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      if (files.length) { document.getElementById('ocr-modal').classList.add('show'); files.forEach(f => queueOcrFile(f)); }
+    });
+  }
+  // DOCX drop zone
+  const docxDz = document.getElementById('docx-drop-zone');
+  if (docxDz) {
+    ['dragenter','dragover'].forEach(e => docxDz.addEventListener(e, ev => { ev.preventDefault(); docxDz.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(e => docxDz.addEventListener(e, ev => { ev.preventDefault(); docxDz.classList.remove('drag-over'); }));
+    docxDz.addEventListener('drop', ev => {
+      ev.preventDefault(); docxDz.classList.remove('drag-over');
+      const f = ev.dataTransfer.files[0];
+      if (f) handleDocxFile({ target: { files: [f] } });
+    });
+  }
+  // MAP drop zone
+  const mapDz = document.getElementById('map-drop-zone');
+  if (mapDz) {
+    ['dragenter','dragover'].forEach(e => mapDz.addEventListener(e, ev => { ev.preventDefault(); mapDz.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(e => mapDz.addEventListener(e, ev => { ev.preventDefault(); mapDz.classList.remove('drag-over'); }));
+    mapDz.addEventListener('drop', ev => {
+      ev.preventDefault(); mapDz.classList.remove('drag-over');
+      const files = Array.from(ev.dataTransfer.files);
+      if (files.length) handleMapFiles({ target: { files } });
+    });
   }
 });
 
